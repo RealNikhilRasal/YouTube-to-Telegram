@@ -32,14 +32,22 @@ jobs:
             echo "last_video=none" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Send to Telegram if new
+      - name: Send to Telegram topics if new
         if: steps.youtube.outputs.video_id != steps.last.outputs.last_video
         run: |
           VIDEO_URL="https://youtu.be/${{ steps.youtube.outputs.video_id }}"
           MESSAGE="🎥 New YouTube video uploaded!\n\n$VIDEO_URL"
 
+          # Topic 1 (message_thread_id = 6215)
           curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage" \
             -d chat_id="${{ secrets.TELEGRAMCHATID }}" \
+            -d message_thread_id=6215 \
+            -d text="$MESSAGE"
+
+          # Topic 2 (message_thread_id = 2717)
+          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage" \
+            -d chat_id="${{ secrets.TELEGRAMCHATID }}" \
+            -d message_thread_id=2717 \
             -d text="$MESSAGE"
 
           echo "${{ steps.youtube.outputs.video_id }}" > last_video.txt
