@@ -1,0 +1,27 @@
+name: YouTube to Telegram
+
+on:
+  schedule:
+    - cron: '*/30 * * * *'   # Runs every 30 minutes
+  workflow_dispatch:         # Allow manual trigger
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v3
+
+      - name: Fetch latest YouTube video
+        id: youtube
+        run: |
+          CHANNEL_ID="UCUOQQgxMLp0MaJL2NJ8Vl2g"
+          FEED_URL="https://www.youtube.com/feeds/videos.xml?channel_id=$CHANNEL_ID"
+          VIDEO_URL=$(curl -s $FEED_URL | grep -oPm1 "(?<=<link rel='alternate' href=')[^']+")
+          echo "video_url=$VIDEO_URL" >> $GITHUB_OUTPUT
+
+      - name: Send to Telegram
+        run: |
+          curl -s -X POST https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage \
+          -d chat_id=${{ secrets.TELEGRAM_CHAT_ID }} \
+          -d text="New YouTube video uploaded: ${{ steps.youtube.outputs.video_url }}"
