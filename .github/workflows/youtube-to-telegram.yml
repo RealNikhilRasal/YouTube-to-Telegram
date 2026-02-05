@@ -1,0 +1,51 @@
+name: YouTube to Telegram
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v3
+
+      - name: Get latest YouTube video ID
+        id: youtube
+        run: |
+          FEED_URL="https://www.youtube.com/feeds/videos.xml?channel_id=UCUOQQgxMLp0MaJL2NJ8Vl2g"
+          VIDEO_ID=$(curl -s $FEED_URL | grep "<yt:videoId>" | head -n 1 | sed 's/.*<yt:videoId>\(.*\)<\/yt:videoId>.*/\1/')
+          echo "video_id=$VIDEO_ID" >> $GITHUB_OUTPUT
+
+      - name: Read last posted video
+        id: last
+        run: |
+          if [ -f last_video.txt ]; then
+            echo "last_video=$(cat last_video.txt)" >> $GITHUB_OUTPUT
+          else
+            echo "last_video=none" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Send to Telegram if new
+        if: steps.youtube.outputs.video_id != steps.last.outputs.last_video
+        run: |
+          VIDEO_URL="https://youtu.be/${{ steps.youtube.outputs.video_id }}"
+          MESSAGE="🎥 New YouTube video uploaded!\n\n$VIDEO_URL"
+
+          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage" \
+          -d chat_id=${{ secrets.TELEGRAMCHATID }} \
+          -d text="$MESSAGE"
+
+          echo "${{ steps.youtube.outputs.video_id }}" > last_video.txt
+
+      - name: Save last video
+        if: steps.youtube.outputs.video_id != steps.last.outputs.last_video
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git add last_video.txt
+          git commit -m "Update last posted video"
+          git push
