@@ -51,21 +51,16 @@ jobs:
           VIDEO_URL="https://youtu.be/$VIDEO_ID"
           THUMB_URL="https://img.youtube.com/vi/$VIDEO_ID/maxresdefault.jpg"
 
-          CAPTION="<a href=\"$VIDEO_URL\">🎥 <b>$VIDEO_TITLE</b></a>
+          CAPTION=$(printf "<a href=\"%s\">🎥 <b>%s</b></a>\n\n🔥 <b>New upload from Last Stand Echo!</b>\nDominate the battlefield with pro strategies 💥\n\n👇 Tap below to watch 👇" "$VIDEO_URL" "$VIDEO_TITLE")
 
-🔥 <b>New upload from Last Stand Echo!</b>
-Dominate the battlefield with pro strategies 💥
-
-👇 Tap below to watch 👇"
-
-          KEYBOARD='{
+          KEYBOARD=$(printf '{
             "inline_keyboard": [[
               {
                 "text": "▶️ Watch Now on YouTube",
-                "url": "'"$VIDEO_URL"'"
+                "url": "%s"
               }
             ]]
-          }'
+          }' "$VIDEO_URL")
 
           # PUBLIC GROUP
           curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendPhoto" \
