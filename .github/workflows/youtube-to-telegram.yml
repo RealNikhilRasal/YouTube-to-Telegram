@@ -16,18 +16,22 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Get latest YouTube video ID
+      - name: Get latest YouTube video details
         id: youtube
         run: |
           FEED_URL="https://www.youtube.com/feeds/videos.xml?channel_id=UCUOQQgxMLp0MaJL2NJ8Vl2g"
-          VIDEO_ID=$(curl -s "$FEED_URL" | grep "<yt:videoId>" | head -n 1 | sed 's/.*<yt:videoId>\(.*\)<\/yt:videoId>.*/\1/')
+          RESPONSE=$(curl -s "$FEED_URL")
+
+          VIDEO_ID=$(echo "$RESPONSE" | grep "<yt:videoId>" | head -n 1 | sed 's/.*<yt:videoId>\(.*\)<\/yt:videoId>.*/\1/')
+          VIDEO_TITLE=$(echo "$RESPONSE" | grep "<title>" | head -n 2 | tail -n 1 | sed 's/.*<title>\(.*\)<\/title>.*/\1/')
 
           if [ -z "$VIDEO_ID" ]; then
-            echo "No video ID found. Exiting."
+            echo "No video found. Exiting."
             exit 1
           fi
 
           echo "video_id=$VIDEO_ID" >> "$GITHUB_OUTPUT"
+          echo "video_title=$VIDEO_TITLE" >> "$GITHUB_OUTPUT"
 
       - name: Read last posted video
         id: last
@@ -37,32 +41,49 @@ jobs:
           else
             LAST_VIDEO="none"
           fi
-
           echo "last_video=$LAST_VIDEO" >> "$GITHUB_OUTPUT"
 
-      - name: Send to Telegram groups if new
+      - name: Send to Telegram if new
         if: steps.youtube.outputs.video_id != steps.last.outputs.last_video
         run: |
           VIDEO_ID="${{ steps.youtube.outputs.video_id }}"
+          VIDEO_TITLE="${{ steps.youtube.outputs.video_title }}"
           VIDEO_URL="https://youtu.be/$VIDEO_ID"
+          THUMB_URL="https://img.youtube.com/vi/$VIDEO_ID/maxresdefault.jpg"
 
-          MESSAGE="🎥 <b>New YouTube Video Uploaded!</b>\n\n<a href=\"$VIDEO_URL\">Watch Now on YouTube</a>"
+          CAPTION="<a href=\"$VIDEO_URL\">🎥 <b>$VIDEO_TITLE</b></a>
 
-          # Send to PUBLIC Group
-          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+🔥 <b>New upload from Last Stand Echo!</b>
+Dominate the battlefield with pro strategies 💥
+
+👇 Tap below to watch 👇"
+
+          KEYBOARD='{
+            "inline_keyboard": [[
+              {
+                "text": "▶️ Watch Now on YouTube",
+                "url": "'"$VIDEO_URL"'"
+              }
+            ]]
+          }'
+
+          # PUBLIC GROUP
+          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendPhoto" \
             -d chat_id="${{ secrets.PUBLIC_CHAT_ID }}" \
             -d message_thread_id="${{ secrets.PUBLIC_TOPIC_ID }}" \
+            -d photo="$THUMB_URL" \
             -d parse_mode="HTML" \
-            -d disable_web_page_preview="false" \
-            -d text="$MESSAGE"
+            -d caption="$CAPTION" \
+            -d reply_markup="$KEYBOARD"
 
-          # Send to PRIVATE Group
-          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+          # PRIVATE GROUP
+          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendPhoto" \
             -d chat_id="${{ secrets.PRIVATE_CHAT_ID }}" \
             -d message_thread_id="${{ secrets.PRIVATE_TOPIC_ID }}" \
+            -d photo="$THUMB_URL" \
             -d parse_mode="HTML" \
-            -d disable_web_page_preview="false" \
-            -d text="$MESSAGE"
+            -d caption="$CAPTION" \
+            -d reply_markup="$KEYBOARD"
 
           echo "$VIDEO_ID" > last_video.txt
 
