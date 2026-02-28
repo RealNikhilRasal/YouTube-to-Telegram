@@ -22,12 +22,13 @@ jobs:
           FEED_URL="https://www.youtube.com/feeds/videos.xml?channel_id=UCUOQQgxMLp0MaJL2NJ8Vl2g"
           RESPONSE=$(curl -s "$FEED_URL")
 
-          VIDEO_ID=$(echo "$RESPONSE" | grep "<yt:videoId>" | head -n 1 | sed 's/.*<yt:videoId>\(.*\)<\/yt:videoId>.*/\1/')
-          VIDEO_TITLE=$(echo "$RESPONSE" | grep "<title>" | head -n 2 | tail -n 1 | sed 's/.*<title>\(.*\)<\/title>.*/\1/')
+          VIDEO_ID=$(echo "$RESPONSE" | grep -oPm1 "(?<=<yt:videoId>)[^<]+")
+          VIDEO_TITLE=$(echo "$RESPONSE" | grep "<title>" | sed -n '2p' | sed 's/.*<title>\(.*\)<\/title>.*/\1/')
 
           if [ -z "$VIDEO_ID" ]; then
-            echo "No video found. Exiting."
-            exit 1
+            echo "No video found. Skipping."
+            echo "video_id=none" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
 
           echo "video_id=$VIDEO_ID" >> "$GITHUB_OUTPUT"
@@ -44,7 +45,7 @@ jobs:
           echo "last_video=$LAST_VIDEO" >> "$GITHUB_OUTPUT"
 
       - name: Send to Telegram if new
-        if: steps.youtube.outputs.video_id != steps.last.outputs.last_video
+        if: steps.youtube.outputs.video_id != 'none' && steps.youtube.outputs.video_id != steps.last.outputs.last_video
         run: |
           VIDEO_ID="${{ steps.youtube.outputs.video_id }}"
           VIDEO_TITLE="${{ steps.youtube.outputs.video_title }}"
@@ -62,28 +63,28 @@ jobs:
             ]]
           }' "$VIDEO_URL")
 
-          # PUBLIC GROUP
+          echo "Sending to PUBLIC group..."
           curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendPhoto" \
             -d chat_id="${{ secrets.PUBLIC_CHAT_ID }}" \
             -d message_thread_id="${{ secrets.PUBLIC_TOPIC_ID }}" \
             -d photo="$THUMB_URL" \
             -d parse_mode="HTML" \
             -d caption="$CAPTION" \
-            -d reply_markup="$KEYBOARD"
+            -d reply_markup="$KEYBOARD" || echo "Public send failed"
 
-          # PRIVATE GROUP
+          echo "Sending to PRIVATE group..."
           curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendPhoto" \
             -d chat_id="${{ secrets.PRIVATE_CHAT_ID }}" \
             -d message_thread_id="${{ secrets.PRIVATE_TOPIC_ID }}" \
             -d photo="$THUMB_URL" \
             -d parse_mode="HTML" \
             -d caption="$CAPTION" \
-            -d reply_markup="$KEYBOARD"
+            -d reply_markup="$KEYBOARD" || echo "Private send failed"
 
           echo "$VIDEO_ID" > last_video.txt
 
       - name: Save last video
-        if: steps.youtube.outputs.video_id != steps.last.outputs.last_video
+        if: steps.youtube.outputs.video_id != 'none' && steps.youtube.outputs.video_id != steps.last.outputs.last_video
         run: |
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
