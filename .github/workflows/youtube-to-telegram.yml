@@ -22,17 +22,17 @@ jobs:
           FEED_URL="https://www.youtube.com/feeds/videos.xml?channel_id=UCUOQQgxMLp0MaJL2NJ8Vl2g"
           RESPONSE=$(curl -s "$FEED_URL")
 
-          VIDEO_ID=$(echo "$RESPONSE" | grep -oPm1 "(?<=<yt:videoId>)[^<]+")
-          VIDEO_TITLE=$(echo "$RESPONSE" | grep "<title>" | sed -n '2p' | sed 's/.*<title>\(.*\)<\/title>.*/\1/')
+          VIDEO_ID=$(echo "$RESPONSE" | sed -n 's:.*<yt:videoId>\(.*\)</yt:videoId>.*:\1:p' | head -n 1)
+          VIDEO_TITLE=$(echo "$RESPONSE" | sed -n 's:.*<title>\(.*\)</title>.*:\1:p' | sed -n '2p')
 
           if [ -z "$VIDEO_ID" ]; then
-            echo "No video found. Skipping."
-            echo "video_id=none" >> "$GITHUB_OUTPUT"
+            echo "No video found."
+            echo "video_id=none" >> $GITHUB_OUTPUT
             exit 0
           fi
 
-          echo "video_id=$VIDEO_ID" >> "$GITHUB_OUTPUT"
-          echo "video_title=$VIDEO_TITLE" >> "$GITHUB_OUTPUT"
+          echo "video_id=$VIDEO_ID" >> $GITHUB_OUTPUT
+          echo "video_title=$VIDEO_TITLE" >> $GITHUB_OUTPUT
 
       - name: Read last posted video
         id: last
@@ -42,7 +42,7 @@ jobs:
           else
             LAST_VIDEO="none"
           fi
-          echo "last_video=$LAST_VIDEO" >> "$GITHUB_OUTPUT"
+          echo "last_video=$LAST_VIDEO" >> $GITHUB_OUTPUT
 
       - name: Send to Telegram if new
         if: steps.youtube.outputs.video_id != 'none' && steps.youtube.outputs.video_id != steps.last.outputs.last_video
@@ -52,34 +52,19 @@ jobs:
           VIDEO_URL="https://youtu.be/$VIDEO_ID"
           THUMB_URL="https://img.youtube.com/vi/$VIDEO_ID/maxresdefault.jpg"
 
-          CAPTION=$(printf "<a href=\"%s\">🎥 <b>%s</b></a>\n\n🔥 <b>New upload from Last Stand Echo!</b>\nDominate the battlefield with pro strategies 💥\n\n👇 Tap below to watch 👇" "$VIDEO_URL" "$VIDEO_TITLE")
-
-          KEYBOARD=$(printf '{
-            "inline_keyboard": [[
-              {
-                "text": "▶️ Watch Now on YouTube",
-                "url": "%s"
-              }
-            ]]
-          }' "$VIDEO_URL")
-
-          echo "Sending to PUBLIC group..."
-          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendPhoto" \
+          CAPTION="<b>$VIDEO_TITLE</b>%0A%0A🔥 New upload is live!%0A👇 Watch now 👇"
+          
+          curl -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendPhoto" \
             -d chat_id="${{ secrets.PUBLIC_CHAT_ID }}" \
-            -d message_thread_id="${{ secrets.PUBLIC_TOPIC_ID }}" \
             -d photo="$THUMB_URL" \
-            -d parse_mode="HTML" \
             -d caption="$CAPTION" \
-            -d reply_markup="$KEYBOARD" || echo "Public send failed"
+            -d parse_mode="HTML" || true
 
-          echo "Sending to PRIVATE group..."
-          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendPhoto" \
+          curl -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendPhoto" \
             -d chat_id="${{ secrets.PRIVATE_CHAT_ID }}" \
-            -d message_thread_id="${{ secrets.PRIVATE_TOPIC_ID }}" \
             -d photo="$THUMB_URL" \
-            -d parse_mode="HTML" \
             -d caption="$CAPTION" \
-            -d reply_markup="$KEYBOARD" || echo "Private send failed"
+            -d parse_mode="HTML" || true
 
           echo "$VIDEO_ID" > last_video.txt
 
@@ -89,5 +74,5 @@ jobs:
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
           git add last_video.txt
-          git commit -m "Update last posted video" || echo "No changes"
-          git push
+          git commit -m "Update last video" || true
+          git push || true
