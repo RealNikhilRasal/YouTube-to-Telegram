@@ -23,7 +23,7 @@ jobs:
           RESPONSE=$(curl -s "$FEED_URL")
 
           VIDEO_ID=$(echo "$RESPONSE" | sed -n 's:.*<yt:videoId>\(.*\)</yt:videoId>.*:\1:p' | head -n 1)
-          VIDEO_TITLE=$(echo "$RESPONSE" | sed -n 's:.*<title>\(.*\)</title>.*:\1:p' | sed -n '2p')
+          VIDEO_TITLE=$(echo "$RESPONSE" | grep -oP '(?<=<title>).*?(?=</title>)' | sed -n '2p')
 
           if [ -z "$VIDEO_ID" ]; then
             echo "No video found."
