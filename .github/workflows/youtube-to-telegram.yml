@@ -107,12 +107,7 @@ jobs:
             HEADER="🚀 NEW VIDEO"
           fi
 
-          CAPTION="<b>$TITLE</b>
-
-$HEADER
-
-⏱ Duration: $DURATION
-👀 Views: $VIEWS"
+          CAPTION="<b><a href=\"$URL\">$TITLE</a></b>%0A%0A$HEADER%0A%0A⏱ Duration: $DURATION%0A👀 Views: $VIEWS"
 
           BUTTON='{"inline_keyboard":[[{"text":"▶ Watch on YouTube","url":"'"$URL"'"}]]}'
 
@@ -201,13 +196,7 @@ $HEADER
 
           MILESTONE=${{ steps.check.outputs.milestone }}
 
-          TEXT="🎉 SUBSCRIBER MILESTONE
-
-🔥 We just crossed $MILESTONE subscribers!
-
-Thank you for supporting Last Stand Echo.
-
-More Bullet Echo guides coming."
+          TEXT="🎉 SUBSCRIBER MILESTONE%0A%0A🔥 We just crossed $MILESTONE subscribers!%0A%0AThank you for supporting Last Stand Echo.%0AMore Bullet Echo guides coming."
 
           curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
           -d chat_id="-1002447950632" \
