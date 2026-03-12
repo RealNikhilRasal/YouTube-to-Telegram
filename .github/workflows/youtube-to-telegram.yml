@@ -22,7 +22,8 @@ jobs:
           FEED_URL="https://www.youtube.com/feeds/videos.xml?channel_id=UCUOQQgxMLp0MaJL2NJ8Vl2g"
           RESPONSE=$(curl -s "$FEED_URL")
 
-          VIDEO_ID=$(echo "$RESPONSE" | sed -n 's:.*<yt:videoId>\(.*\)</yt:videoId>.*:\1:p' | head -n 1)
+          # Stronger extraction method
+          VIDEO_ID=$(echo "$RESPONSE" | grep -oPm1 "(?<=<yt:videoId>)[^<]+")
           VIDEO_TITLE=$(echo "$RESPONSE" | grep -oP '(?<=<title>).*?(?=</title>)' | sed -n '2p')
 
           if [ -z "$VIDEO_ID" ]; then
@@ -52,7 +53,10 @@ jobs:
           VIDEO_URL="https://youtu.be/$VIDEO_ID"
           THUMB_URL="https://img.youtube.com/vi/$VIDEO_ID/hqdefault.jpg"
 
-          CAPTION="<b>$VIDEO_TITLE</b>%0A%0A🔥 New upload is live!%0A👇 Watch now 👇"
+          # Save video first to prevent duplicate posts
+          echo "$VIDEO_ID" > last_video.txt
+
+          CAPTION="<b>$VIDEO_TITLE</b>%0A%0A🔥 New upload is live!%0A👇 Watch now 👇%0A$VIDEO_URL"
 
           echo "Sending to PUBLIC group..."
           RESPONSE1=$(curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendPhoto" \
@@ -71,8 +75,6 @@ jobs:
             -d parse_mode="HTML")
 
           echo "$RESPONSE2"
-
-          echo "$VIDEO_ID" > last_video.txt
 
       - name: Save last video
         if: steps.youtube.outputs.video_id != 'none' && steps.youtube.outputs.video_id != steps.last.outputs.last_video
