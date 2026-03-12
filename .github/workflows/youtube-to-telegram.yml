@@ -1,4 +1,4 @@
-name: YouTube to Telegram Automation
+name: YouTube → Telegram Automation
 
 on:
   schedule:
@@ -9,6 +9,7 @@ permissions:
   contents: write
 
 jobs:
+
   video_notify:
     runs-on: ubuntu-latest
 
@@ -43,11 +44,32 @@ jobs:
           fi
           echo "last_video=$LAST" >> $GITHUB_OUTPUT
 
+      - name: Detect video type
+        id: info
+        run: |
+          VIDEO_ID="${{ steps.youtube.outputs.video_id }}"
+          PAGE=$(curl -s "https://www.youtube.com/watch?v=$VIDEO_ID")
+
+          DURATION_MS=$(echo "$PAGE" | grep -oP '(?<=approxDurationMs":")[0-9]+' | head -n 1)
+
+          if [ -z "$DURATION_MS" ]; then
+            TYPE="VIDEO"
+          elif [ "$DURATION_MS" -le 180000 ]; then
+            TYPE="SHORT"
+          else
+            TYPE="VIDEO"
+          fi
+
+          echo "type=$TYPE" >> $GITHUB_OUTPUT
+
       - name: Send video to Telegram
         if: steps.youtube.outputs.video_id != 'none' && steps.youtube.outputs.video_id != steps.last.outputs.last_video
         run: |
+
           VIDEO_ID="${{ steps.youtube.outputs.video_id }}"
           TITLE="${{ steps.youtube.outputs.video_title }}"
+          TYPE="${{ steps.info.outputs.type }}"
+
           URL="https://youtu.be/$VIDEO_ID"
 
           MAXRES="https://img.youtube.com/vi/$VIDEO_ID/maxresdefault.jpg"
@@ -63,27 +85,36 @@ jobs:
 
           echo "$VIDEO_ID" > last_video.txt
 
-          CAPTION=$(printf "<b><a href=\"%s\">%s</a></b>\n\n🔥 New upload is live!\n👇 Tap below to watch 👇" "$URL" "$TITLE")
+          CAPTION="<b><a href=\"$URL\">$TITLE</a></b>
+
+🔥 New upload is live!
+👇 Tap below to watch 👇"
 
           BUTTON='{"inline_keyboard":[[{"text":"▶️ Watch on YouTube","url":"'"$URL"'"}]]}'
 
-          echo "Posting to PUBLIC topic"
-          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendPhoto" \
-            -d chat_id="-1002447950632" \
-            -d message_thread_id="6215" \
-            -d photo="$THUMB" \
-            -d caption="$CAPTION" \
-            -d parse_mode="HTML" \
-            -d reply_markup="$BUTTON"
+          if [ "$TYPE" = "SHORT" ]; then
+            METHOD="sendVideo"
+            MEDIA="$URL"
+          else
+            METHOD="sendPhoto"
+            MEDIA="$THUMB"
+          fi
 
-          echo "Posting to PRIVATE topic"
-          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendPhoto" \
-            -d chat_id="-1002176152174" \
-            -d message_thread_id="2717" \
-            -d photo="$THUMB" \
-            -d caption="$CAPTION" \
-            -d parse_mode="HTML" \
-            -d reply_markup="$BUTTON"
+          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/$METHOD" \
+          -d chat_id="-1002447950632" \
+          -d message_thread_id="6215" \
+          -d $( [ "$TYPE" = "SHORT" ] && echo "video" || echo "photo")="$MEDIA" \
+          -d caption="$CAPTION" \
+          -d parse_mode="HTML" \
+          -d reply_markup="$BUTTON"
+
+          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/$METHOD" \
+          -d chat_id="-1002176152174" \
+          -d message_thread_id="2717" \
+          -d $( [ "$TYPE" = "SHORT" ] && echo "video" || echo "photo")="$MEDIA" \
+          -d caption="$CAPTION" \
+          -d parse_mode="HTML" \
+          -d reply_markup="$BUTTON"
 
       - name: Save last video
         if: steps.youtube.outputs.video_id != 'none' && steps.youtube.outputs.video_id != steps.last.outputs.last_video
@@ -92,4 +123,74 @@ jobs:
           git config user.email "github-actions@github.com"
           git add last_video.txt
           git commit -m "Update last video" || echo "No changes"
+          git push
+
+
+  subscriber_milestones:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Get subscriber count
+        id: subs
+        run: |
+          PAGE=$(curl -s "https://www.youtube.com/@LastStandEcho")
+          SUBS=$(echo "$PAGE" | grep -oP '(?<=subscriberCountText":{"simpleText":")[^ ]+' | head -n 1)
+          NUM=$(echo $SUBS | sed 's/K/*1000/' | sed 's/M/*1000000/' | bc)
+          echo "subs=$NUM" >> $GITHUB_OUTPUT
+
+      - name: Read last subs
+        id: last
+        run: |
+          if [ -f last_subs.txt ]; then
+            LAST=$(cat last_subs.txt)
+          else
+            LAST=0
+          fi
+          echo "last=$LAST" >> $GITHUB_OUTPUT
+
+      - name: Check milestone
+        id: check
+        run: |
+          CURRENT=${{ steps.subs.outputs.subs }}
+          LAST=${{ steps.last.outputs.last }}
+
+          MILESTONE="none"
+
+          if [ "$LAST" -lt 1000 ] && [ "$CURRENT" -ge 1000 ]; then
+            MILESTONE="1K"
+          elif [ "$LAST" -lt 5000 ] && [ "$CURRENT" -ge 5000 ]; then
+            MILESTONE="5K"
+          elif [ "$LAST" -lt 10000 ] && [ "$CURRENT" -ge 10000 ]; then
+            MILESTONE="10K"
+          fi
+
+          echo "milestone=$MILESTONE" >> $GITHUB_OUTPUT
+
+      - name: Send milestone message
+        if: steps.check.outputs.milestone != 'none'
+        run: |
+
+          MILESTONE=${{ steps.check.outputs.milestone }}
+
+          TEXT="🎉 SUBSCRIBER MILESTONE
+
+🔥 We just crossed $MILESTONE subscribers!
+
+Thank you for supporting Last Stand Echo."
+
+          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+          -d chat_id="-1002447950632" \
+          -d message_thread_id="6215" \
+          -d text="$TEXT"
+
+      - name: Save subscriber count
+        run: |
+          echo "${{ steps.subs.outputs.subs }}" > last_subs.txt
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git add last_subs.txt
+          git commit -m "Update subs" || echo "No changes"
           git push
