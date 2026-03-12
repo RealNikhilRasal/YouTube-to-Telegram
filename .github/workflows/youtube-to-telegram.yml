@@ -22,7 +22,6 @@ jobs:
           FEED_URL="https://www.youtube.com/feeds/videos.xml?channel_id=UCUOQQgxMLp0MaJL2NJ8Vl2g"
           RESPONSE=$(curl -s "$FEED_URL")
 
-          # Stronger extraction method
           VIDEO_ID=$(echo "$RESPONSE" | grep -oPm1 "(?<=<yt:videoId>)[^<]+")
           VIDEO_TITLE=$(echo "$RESPONSE" | grep -oP '(?<=<title>).*?(?=</title>)' | sed -n '2p')
 
@@ -53,23 +52,25 @@ jobs:
           VIDEO_URL="https://youtu.be/$VIDEO_ID"
           THUMB_URL="https://img.youtube.com/vi/$VIDEO_ID/hqdefault.jpg"
 
-          # Save video first to prevent duplicate posts
+          # Save video early to prevent duplicates
           echo "$VIDEO_ID" > last_video.txt
 
           CAPTION="<b>$VIDEO_TITLE</b>%0A%0A🔥 New upload is live!%0A👇 Watch now 👇%0A$VIDEO_URL"
 
-          echo "Sending to PUBLIC group..."
+          echo "Sending to PUBLIC topic..."
           RESPONSE1=$(curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendPhoto" \
-            -d chat_id="${{ secrets.PUBLIC_CHAT_ID }}" \
+            -d chat_id="-1002447950632" \
+            -d message_thread_id="6215" \
             -d photo="$THUMB_URL" \
             -d caption="$CAPTION" \
             -d parse_mode="HTML")
 
           echo "$RESPONSE1"
 
-          echo "Sending to PRIVATE group..."
+          echo "Sending to PRIVATE topic..."
           RESPONSE2=$(curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendPhoto" \
-            -d chat_id="${{ secrets.PRIVATE_CHAT_ID }}" \
+            -d chat_id="-1002176152174" \
+            -d message_thread_id="2717" \
             -d photo="$THUMB_URL" \
             -d caption="$CAPTION" \
             -d parse_mode="HTML")
