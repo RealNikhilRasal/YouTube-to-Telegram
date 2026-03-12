@@ -1,4 +1,4 @@
-name: YouTube → Telegram Automation
+name: YouTube to Telegram Automation
 
 on:
   schedule:
@@ -9,13 +9,12 @@ permissions:
   contents: write
 
 jobs:
-
   video_notify:
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v4
 
       - name: Get latest YouTube upload
         id: youtube
@@ -42,13 +41,11 @@ jobs:
           else
             LAST="none"
           fi
-
           echo "last_video=$LAST" >> $GITHUB_OUTPUT
 
       - name: Send video to Telegram
         if: steps.youtube.outputs.video_id != 'none' && steps.youtube.outputs.video_id != steps.last.outputs.last_video
         run: |
-
           VIDEO_ID="${{ steps.youtube.outputs.video_id }}"
           TITLE="${{ steps.youtube.outputs.video_title }}"
 
@@ -67,14 +64,18 @@ jobs:
 
           echo "$VIDEO_ID" > last_video.txt
 
-          CAPTION="<b><a href=\"$URL\">$TITLE</a></b>
+          CAPTION=$(cat <<EOF
+<b><a href="$URL">$TITLE</a></b>
 
 🔥 New upload is live!
-👇 Tap below to watch 👇"
+👇 Tap below to watch 👇
+EOF
+)
 
           BUTTON='{"inline_keyboard":[[{"text":"▶️ Watch on YouTube","url":"'"$URL"'"}]]}'
 
           echo "Posting to PUBLIC topic"
+
           curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendPhoto" \
           -d chat_id="-1002447950632" \
           -d message_thread_id="6215" \
@@ -84,6 +85,7 @@ jobs:
           -d reply_markup="$BUTTON"
 
           echo "Posting to PRIVATE topic"
+
           curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendPhoto" \
           -d chat_id="-1002176152174" \
           -d message_thread_id="2717" \
