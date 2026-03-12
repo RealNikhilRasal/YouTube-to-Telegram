@@ -42,6 +42,7 @@ jobs:
           else
             LAST="none"
           fi
+
           echo "last_video=$LAST" >> $GITHUB_OUTPUT
 
       - name: Detect video type
@@ -85,10 +86,7 @@ jobs:
 
           echo "$VIDEO_ID" > last_video.txt
 
-          CAPTION="<b><a href=\"$URL\">$TITLE</a></b>
-
-🔥 New upload is live!
-👇 Tap below to watch 👇"
+          CAPTION=$(printf "<b><a href=\"%s\">%s</a></b>\n\n🔥 New upload is live!\n👇 Tap below to watch 👇" "$URL" "$TITLE")
 
           BUTTON='{"inline_keyboard":[[{"text":"▶️ Watch on YouTube","url":"'"$URL"'"}]]}'
 
@@ -101,20 +99,20 @@ jobs:
           fi
 
           curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/$METHOD" \
-          -d chat_id="-1002447950632" \
-          -d message_thread_id="6215" \
-          -d $( [ "$TYPE" = "SHORT" ] && echo "video" || echo "photo")="$MEDIA" \
-          -d caption="$CAPTION" \
-          -d parse_mode="HTML" \
-          -d reply_markup="$BUTTON"
+            -d chat_id="-1002447950632" \
+            -d message_thread_id="6215" \
+            -d $( [ "$TYPE" = "SHORT" ] && echo "video" || echo "photo")="$MEDIA" \
+            -d caption="$CAPTION" \
+            -d parse_mode="HTML" \
+            -d reply_markup="$BUTTON"
 
           curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/$METHOD" \
-          -d chat_id="-1002176152174" \
-          -d message_thread_id="2717" \
-          -d $( [ "$TYPE" = "SHORT" ] && echo "video" || echo "photo")="$MEDIA" \
-          -d caption="$CAPTION" \
-          -d parse_mode="HTML" \
-          -d reply_markup="$BUTTON"
+            -d chat_id="-1002176152174" \
+            -d message_thread_id="2717" \
+            -d $( [ "$TYPE" = "SHORT" ] && echo "video" || echo "photo")="$MEDIA" \
+            -d caption="$CAPTION" \
+            -d parse_mode="HTML" \
+            -d reply_markup="$BUTTON"
 
       - name: Save last video
         if: steps.youtube.outputs.video_id != 'none' && steps.youtube.outputs.video_id != steps.last.outputs.last_video
@@ -137,8 +135,10 @@ jobs:
         id: subs
         run: |
           PAGE=$(curl -s "https://www.youtube.com/@LastStandEcho")
+
           SUBS=$(echo "$PAGE" | grep -oP '(?<=subscriberCountText":{"simpleText":")[^ ]+' | head -n 1)
           NUM=$(echo $SUBS | sed 's/K/*1000/' | sed 's/M/*1000000/' | bc)
+
           echo "subs=$NUM" >> $GITHUB_OUTPUT
 
       - name: Read last subs
@@ -149,6 +149,7 @@ jobs:
           else
             LAST=0
           fi
+
           echo "last=$LAST" >> $GITHUB_OUTPUT
 
       - name: Check milestone
@@ -175,16 +176,12 @@ jobs:
 
           MILESTONE=${{ steps.check.outputs.milestone }}
 
-          TEXT="🎉 SUBSCRIBER MILESTONE
-
-🔥 We just crossed $MILESTONE subscribers!
-
-Thank you for supporting Last Stand Echo."
+          TEXT=$(printf "🎉 SUBSCRIBER MILESTONE\n\n🔥 We just crossed %s subscribers!\n\nThank you for supporting Last Stand Echo." "$MILESTONE")
 
           curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
-          -d chat_id="-1002447950632" \
-          -d message_thread_id="6215" \
-          -d text="$TEXT"
+            -d chat_id="-1002447950632" \
+            -d message_thread_id="6215" \
+            -d text="$TEXT"
 
       - name: Save subscriber count
         run: |
