@@ -23,13 +23,20 @@ jobs:
         id: youtube
         run: |
           FEED_URL="https://www.youtube.com/feeds/videos.xml?channel_id=UCUOQQgxMLp0MaJL2NJ8Vl2g"
-          RESPONSE=$(curl -s "$FEED_URL")
+          RESPONSE=$(curl -sL "$FEED_URL")
 
-          VIDEO_ID=$(echo "$RESPONSE" | grep -oPm1 "(?<=<yt:videoId>)[^<]+")
-          VIDEO_TITLE=$(echo "$RESPONSE" | grep -oP '(?<=<title>).*?(?=</title>)' | sed -n '2p')
+          if [ -z "$RESPONSE" ]; then
+            echo "video_id=none" >> $GITHUB_OUTPUT
+            echo "video_title=" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          VIDEO_ID=$(echo "$RESPONSE" | grep -oPm1 "(?<=<yt:videoId>)[^<]+" || true)
+          VIDEO_TITLE=$(echo "$RESPONSE" | grep -oP '(?<=<title>).*?(?=</title>)' | sed -n '2p' || true)
 
           if [ -z "$VIDEO_ID" ]; then
             echo "video_id=none" >> $GITHUB_OUTPUT
+            echo "video_title=" >> $GITHUB_OUTPUT
             exit 0
           fi
 
@@ -51,9 +58,14 @@ jobs:
         id: info
         run: |
           VIDEO_ID="${{ steps.youtube.outputs.video_id }}"
-          PAGE=$(curl -s "https://www.youtube.com/watch?v=$VIDEO_ID")
 
-          DURATION_MS=$(echo "$PAGE" | grep -oP '(?<=approxDurationMs":")[0-9]+' | head -n 1)
+          if [ "$VIDEO_ID" = "none" ] || [ -z "$VIDEO_ID" ]; then
+            echo "type=VIDEO" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          PAGE=$(curl -sL "https://www.youtube.com/watch?v=$VIDEO_ID")
+          DURATION_MS=$(echo "$PAGE" | grep -oP '(?<=approxDurationMs":")[0-9]+' | head -n 1 || true)
 
           if [ -z "$DURATION_MS" ]; then
             TYPE="VIDEO"
@@ -70,8 +82,6 @@ jobs:
         run: |
           VIDEO_ID="${{ steps.youtube.outputs.video_id }}"
           TITLE="${{ steps.youtube.outputs.video_title }}"
-          TYPE="${{ steps.info.outputs.type }}"
-
           URL="https://youtu.be/$VIDEO_ID"
 
           MAXRES="https://img.youtube.com/vi/$VIDEO_ID/maxresdefault.jpg"
@@ -87,27 +97,34 @@ jobs:
 
           echo "$VIDEO_ID" > last_video.txt
 
-          CAPTION=$(printf '<b><a href="%s">%s</a></b>\n\n🔥 New upload is live!\n👇 Tap below to watch 👇' "$URL" "$TITLE")
+          # Escape HTML-sensitive characters in title
+          SAFE_TITLE=$(printf '%s' "$TITLE" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g')
 
+          CAPTION=$(printf '<b><a href="%s">%s</a></b>\n\n🔥 New upload is live!\n👇 Tap below to watch 👇' "$URL" "$SAFE_TITLE")
           BUTTON='{"inline_keyboard":[[{"text":"▶️ Watch on YouTube","url":"'"$URL"'"}]]}'
 
-          # Stable version: always send thumbnail photo for both video and short
-          # This avoids Telegram rejecting YouTube URL as direct video file
-          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendPhoto" \
+          RESP1=$(curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendPhoto" \
             -d chat_id="-1002447950632" \
             -d message_thread_id="6215" \
             -d photo="$THUMB" \
             -d caption="$CAPTION" \
             -d parse_mode="HTML" \
-            -d reply_markup="$BUTTON"
+            -d reply_markup="$BUTTON")
 
-          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendPhoto" \
+          echo "$RESP1"
+
+          RESP2=$(curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendPhoto" \
             -d chat_id="-1002176152174" \
             -d message_thread_id="2717" \
             -d photo="$THUMB" \
             -d caption="$CAPTION" \
             -d parse_mode="HTML" \
-            -d reply_markup="$BUTTON"
+            -d reply_markup="$BUTTON")
+
+          echo "$RESP2"
+
+          echo "$RESP1" | grep -q '"ok":true' || exit 1
+          echo "$RESP2" | grep -q '"ok":true' || exit 1
 
       - name: Save last video
         if: steps.youtube.outputs.video_id != 'none' && steps.youtube.outputs.video_id != steps.last.outputs.last_video
@@ -117,7 +134,7 @@ jobs:
           git add last_video.txt
           git commit -m "Update last video" || echo "No changes"
           git pull --rebase origin main || true
-          git push
+          git push || true
 
 
   subscriber_milestones:
@@ -133,9 +150,14 @@ jobs:
       - name: Get subscriber count
         id: subs
         run: |
-          PAGE=$(curl -s "https://www.youtube.com/@LastStandEcho")
+          PAGE=$(curl -sL "https://www.youtube.com/@LastStandEcho")
 
-          SUBS=$(echo "$PAGE" | grep -oP '(?<=subscriberCountText":{"simpleText":")[^ ]+' | head -n 1)
+          if [ -z "$PAGE" ]; then
+            echo "subs=0" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          SUBS=$(echo "$PAGE" | grep -oP '(?<=subscriberCountText":{"simpleText":")[^ ]+' | head -n 1 || true)
 
           if [ -z "$SUBS" ]; then
             echo "subs=0" >> $GITHUB_OUTPUT
@@ -195,4 +217,4 @@ jobs:
           git add last_subs.txt
           git commit -m "Update subs" || echo "No changes"
           git pull --rebase origin main || true
-          git push
+          git push || true
