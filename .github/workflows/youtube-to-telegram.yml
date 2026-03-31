@@ -1,4 +1,4 @@
-name: YouTube → Telegram Automation
+name: YouTube to Telegram Automation
 
 on:
   schedule:
@@ -7,6 +7,10 @@ on:
 
 permissions:
   contents: write
+
+concurrency:
+  group: youtube-telegram-automation
+  cancel-in-progress: false
 
 jobs:
   video_notify:
@@ -17,6 +21,13 @@ jobs:
         uses: actions/checkout@v5
         with:
           fetch-depth: 0
+          ref: main
+
+      - name: Ensure state files exist
+        run: |
+          [ -f last_video.txt ] || echo "none" > last_video.txt
+          [ -f posted_videos.txt ] || touch posted_videos.txt
+          [ -f last_subs.txt ] || echo "0" > last_subs.txt
 
       - name: Get latest YouTube upload
         id: youtube
@@ -39,6 +50,9 @@ jobs:
             exit 0
           fi
 
+          echo "Latest YouTube VIDEO_ID: $VIDEO_ID"
+          echo "Latest YouTube TITLE: $VIDEO_TITLE"
+
           echo "video_id=$VIDEO_ID" >> "$GITHUB_OUTPUT"
 
           echo "video_title<<EOF" >> "$GITHUB_OUTPUT"
@@ -48,13 +62,27 @@ jobs:
       - name: Read last posted video
         id: last
         run: |
-          if [ -f last_video.txt ]; then
-            LAST=$(cat last_video.txt)
-          else
-            LAST="none"
+          LAST=$(cat last_video.txt 2>/dev/null || echo "none")
+          echo "Last saved VIDEO_ID: $LAST"
+          echo "last_video=$LAST" >> "$GITHUB_OUTPUT"
+
+      - name: Check posted history
+        id: history
+        run: |
+          VIDEO_ID="${{ steps.youtube.outputs.video_id }}"
+
+          if [ "$VIDEO_ID" = "none" ] || [ -z "$VIDEO_ID" ]; then
+            echo "already_posted=false" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
 
-          echo "last_video=$LAST" >> "$GITHUB_OUTPUT"
+          if grep -Fxq "$VIDEO_ID" posted_videos.txt; then
+            echo "Video found in posted_videos.txt history."
+            echo "already_posted=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Video NOT found in posted_videos.txt history."
+            echo "already_posted=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Detect video type
         id: info
@@ -77,10 +105,16 @@ jobs:
             TYPE="VIDEO"
           fi
 
+          echo "Detected type: $TYPE"
           echo "type=$TYPE" >> "$GITHUB_OUTPUT"
 
-      - name: Send video to Telegram
-        if: steps.youtube.outputs.video_id != 'none' && steps.youtube.outputs.video_id != steps.last.outputs.last_video
+      - name: Skip if already posted
+        if: steps.youtube.outputs.video_id == steps.last.outputs.last_video || steps.history.outputs.already_posted == 'true'
+        run: |
+          echo "This video was already posted. Skipping Telegram send."
+
+      - name: Send video to Telegram and save state
+        if: steps.youtube.outputs.video_id != 'none' && steps.youtube.outputs.video_id != steps.last.outputs.last_video && steps.history.outputs.already_posted != 'true'
         run: |
           set -e
 
@@ -88,6 +122,10 @@ jobs:
           TITLE="${{ steps.youtube.outputs.video_title }}"
           TYPE="${{ steps.info.outputs.type }}"
           URL="https://youtu.be/$VIDEO_ID"
+
+          echo "Posting NEW video: $VIDEO_ID"
+          echo "Title: $TITLE"
+          echo "Type: $TYPE"
 
           MAXRES="https://img.youtube.com/vi/$VIDEO_ID/maxresdefault.jpg"
           HQ="https://img.youtube.com/vi/$VIDEO_ID/hqdefault.jpg"
@@ -100,9 +138,13 @@ jobs:
             THUMB="$HQ"
           fi
 
-          BUTTON='{"inline_keyboard":[[{"text":"▶️ Watch on YouTube","url":"'"$URL"'"}]]}'
+          BUTTON='{"inline_keyboard":[[{"text":"▶ Watch on YouTube","url":"'"$URL"'"}]]}'
 
-          CAPTION=$(printf '%s\n\n🔥 New upload is live!\n👇 Tap below to watch 👇' "$TITLE")
+          if [ "$TYPE" = "SHORT" ]; then
+            CAPTION=$(printf '%s\n\n🔥 New Short is live!\n👇 Tap below to watch 👇' "$TITLE")
+          else
+            CAPTION=$(printf '%s\n\n🔥 New upload is live!\n👇 Tap below to watch 👇' "$TITLE")
+          fi
 
           RESP1=$(curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendPhoto" \
             -d chat_id="-1002447950632" \
@@ -111,6 +153,7 @@ jobs:
             --data-urlencode caption="$CAPTION" \
             -d reply_markup="$BUTTON")
 
+          echo "Telegram Response 1:"
           echo "$RESP1"
           echo "$RESP1" | grep -q '"ok":true' || exit 1
 
@@ -121,14 +164,28 @@ jobs:
             --data-urlencode caption="$CAPTION" \
             -d reply_markup="$BUTTON")
 
+          echo "Telegram Response 2:"
           echo "$RESP2"
           echo "$RESP2" | grep -q '"ok":true' || exit 1
 
+          echo "Both Telegram posts succeeded. Saving state..."
           echo "$VIDEO_ID" > last_video.txt
 
-      - name: Save last video
-        if: steps.youtube.outputs.video_id != 'none' && steps.youtube.outputs.video_id != steps.last.outputs.last_video
+          if ! grep -Fxq "$VIDEO_ID" posted_videos.txt; then
+            echo "$VIDEO_ID" >> posted_videos.txt
+          fi
+
+          echo "Saved last_video.txt:"
+          cat last_video.txt
+
+          echo "Saved posted_videos.txt:"
+          cat posted_videos.txt
+
+      - name: Commit and push video state
+        if: steps.youtube.outputs.video_id != 'none' && steps.youtube.outputs.video_id != steps.last.outputs.last_video && steps.history.outputs.already_posted != 'true'
         run: |
+          set -e
+
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
 
@@ -136,9 +193,15 @@ jobs:
           git checkout main
           git pull --rebase origin main
 
-          git add last_video.txt
-          git commit -m "Update last video" || echo "No changes"
-          git push origin main || true
+          git add last_video.txt posted_videos.txt
+
+          if git diff --cached --quiet; then
+            echo "No changes to commit for video state files."
+          else
+            git commit -m "Update video state to ${{ steps.youtube.outputs.video_id }}"
+            git push origin main
+            echo "Video state files pushed successfully."
+          fi
 
   subscriber_milestones:
     needs: video_notify
@@ -149,6 +212,11 @@ jobs:
         uses: actions/checkout@v5
         with:
           fetch-depth: 0
+          ref: main
+
+      - name: Ensure subscriber state file exists
+        run: |
+          [ -f last_subs.txt ] || echo "0" > last_subs.txt
 
       - name: Get subscriber count
         id: subs
@@ -169,17 +237,14 @@ jobs:
 
           NUM=$(echo "$SUBS" | sed 's/K/*1000/' | sed 's/M/*1000000/' | bc)
 
+          echo "Current subscribers: $NUM"
           echo "subs=$NUM" >> "$GITHUB_OUTPUT"
 
       - name: Read last subs
         id: last
         run: |
-          if [ -f last_subs.txt ]; then
-            LAST=$(cat last_subs.txt)
-          else
-            LAST=0
-          fi
-
+          LAST=$(cat last_subs.txt 2>/dev/null || echo "0")
+          echo "Last saved subscribers: $LAST"
           echo "last=$LAST" >> "$GITHUB_OUTPUT"
 
       - name: Check milestone
@@ -198,11 +263,14 @@ jobs:
             MILESTONE="10K"
           fi
 
+          echo "Milestone check result: $MILESTONE"
           echo "milestone=$MILESTONE" >> "$GITHUB_OUTPUT"
 
       - name: Send milestone message
         if: steps.check.outputs.milestone != 'none'
         run: |
+          set -e
+
           MILESTONE="${{ steps.check.outputs.milestone }}"
 
           TEXT=$(printf '🎉 SUBSCRIBER MILESTONE\n\n🔥 We just crossed %s subscribers!\n\nThank you for supporting Last Stand Echo.' "$MILESTONE")
@@ -217,7 +285,16 @@ jobs:
 
       - name: Save subscriber count
         run: |
-          echo "${{ steps.subs.outputs.subs }}" > last_subs.txt
+          set -e
+
+          SUBS="${{ steps.subs.outputs.subs }}"
+
+          if [ -z "$SUBS" ] || [ "$SUBS" = "0" ]; then
+            echo "Subscriber count invalid or zero. Skipping save to avoid corrupting state."
+            exit 0
+          fi
+
+          echo "$SUBS" > last_subs.txt
 
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
@@ -227,5 +304,11 @@ jobs:
           git pull --rebase origin main
 
           git add last_subs.txt
-          git commit -m "Update subs" || echo "No changes"
-          git push origin main || true
+
+          if git diff --cached --quiet; then
+            echo "No changes to commit for last_subs.txt"
+          else
+            git commit -m "Update subs to $SUBS"
+            git push origin main
+            echo "last_subs.txt pushed successfully."
+          fi
